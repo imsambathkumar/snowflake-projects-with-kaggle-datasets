@@ -1,0 +1,236 @@
+-- How many unique product lines does the data have?
+SELECT COUNT(DISTINCT product_line) AS unique_product_lines
+FROM product_dim;
+
+-- What is the most selling product line?
+SELECT product_line, SUM(quantity) AS total_quantity
+FROM sales_fact sf
+JOIN product_dim pd
+ON sf.product_id = pd.product_id
+GROUP BY product_line
+ORDER BY total_quantity DESC
+LIMIT 1;
+
+-- What is the total revenue by month?
+SELECT 
+    EXTRACT(YEAR FROM dd.full_date) AS year,
+    EXTRACT(MONTH FROM dd.full_date) AS month,
+    SUM(total) AS total_revenue
+FROM sales_fact sf
+JOIN date_dim dd 
+ON sf.date_id = dd.date_id
+GROUP BY year, month
+ORDER BY year, month;
+
+-- What month had the largest COGS?
+SELECT 
+    EXTRACT(YEAR FROM dd.full_date) AS year,
+    EXTRACT(MONTH FROM dd.full_date) AS month,
+    SUM(cogs) AS total_cogs
+FROM sales_fact sf
+JOIN date_dim dd 
+ON sf.date_id = dd.date_id
+GROUP BY year, month
+ORDER BY total_cogs DESC
+LIMIT 1;
+
+-- What product line had the largest revenue?
+SELECT product_line, SUM(total) AS total_revenue
+FROM sales_fact sf
+JOIN product_dim pd 
+ON sf.product_id = pd.product_id
+GROUP BY product_line
+ORDER BY total_revenue DESC
+LIMIT 1;
+
+-- What is the city with the largest revenue?
+SELECT city, SUM(total) AS total_revenue
+FROM sales_fact sf
+JOIN store_dim sd 
+ON sf.store_id = sd.store_id
+GROUP BY city
+ORDER BY total_revenue DESC
+LIMIT 1;
+
+-- What product line had the largest VAT?
+SELECT product_line, SUM(tax) AS total_vat
+FROM sales_fact sf
+JOIN product_dim pd 
+ON sf.product_id = pd.product_id
+GROUP BY product_line
+ORDER BY total_vat DESC
+LIMIT 1;
+
+-- Fetch each product line and add a column showing "Good" or "Bad" based on average sales
+WITH avg_sales AS (
+    SELECT AVG(quantity) AS avg_quantity
+    FROM sales_fact
+)
+SELECT 
+    product_line, 
+    SUM(quantity) AS total_quantity,
+    CASE 
+        WHEN SUM(quantity) > (SELECT avg_quantity FROM avg_sales) THEN 'Good'
+        ELSE 'Bad'
+    END AS performance
+FROM sales_fact sf
+JOIN product_dim pd 
+ON sf.product_id = pd.product_id
+GROUP BY product_line;
+-- Which branch sold more products than the average product sold?
+WITH avg_sales AS (
+    SELECT AVG(quantity) AS avg_quantity
+    FROM sales_fact
+)
+SELECT 
+    branch,
+    SUM(quantity) AS total_quantity
+FROM sales_fact sf
+JOIN store_dim sd 
+ON sf.store_id = sd.store_id
+GROUP BY branch
+HAVING SUM(quantity) > (SELECT avg_quantity FROM avg_sales);
+
+-- What is the most common product line by gender?
+SELECT 
+    gender,
+    product_line,
+    COUNT(*) AS count
+FROM sales_fact sf
+JOIN product_dim pd 
+ON sf.product_id = pd.product_id
+JOIN customer_dim cd 
+ON sf.customer_id = cd.customer_id
+GROUP BY gender, product_line
+ORDER BY gender, count DESC;
+
+-- What is the average rating of each product line?
+SELECT 
+    product_line, 
+    AVG(rating) AS average_rating
+FROM sales_fact sf
+JOIN product_dim pd 
+ON sf.product_id = pd.product_id
+GROUP BY product_line;
+
+-- Customers
+-- How many unique customer types does the data have?
+SELECT COUNT(DISTINCT customer_type) AS unique_customer_types
+FROM customer_dim;
+
+-- How many unique payment methods does the data have?
+SELECT COUNT(DISTINCT payment) AS unique_payment_methods
+FROM sales_fact;
+
+-- What is the most common customer type?
+SELECT customer_type, COUNT(*) AS count
+FROM customer_dim
+GROUP BY customer_type
+ORDER BY count DESC
+LIMIT 1;
+
+-- Which customer type buys the most?
+SELECT customer_type, SUM(total) AS total_spent
+FROM sales_fact sf
+JOIN customer_dim cd ON sf.customer_id = cd.customer_id
+GROUP BY customer_type
+ORDER BY total_spent DESC
+LIMIT 1;
+
+-- What is the gender of most of the customers?
+SELECT gender, COUNT(*) AS count
+FROM customer_dim
+GROUP BY gender
+ORDER BY count DESC
+LIMIT 1;
+
+-- What is the gender distribution per branch?
+SELECT 
+    branch, 
+    gender, 
+    COUNT(*) AS count
+FROM sales_fact sf
+JOIN customer_dim cd 
+ON sf.customer_id = cd.customer_id
+JOIN store_dim sd 
+ON sf.store_id = sd.store_id
+GROUP BY branch, gender
+ORDER BY branch, count DESC;
+
+-- Which time of the day do customers give the most ratings?
+SELECT 
+    time, 
+    AVG(rating) AS average_rating
+FROM sales_fact
+GROUP BY time
+ORDER BY average_rating DESC;
+
+-- Which time of the day do customers give the most ratings per branch?
+SELECT 
+    branch, 
+    time, 
+    AVG(rating) AS average_rating
+FROM sales_fact sf
+JOIN store_dim sd 
+ON sf.store_id = sd.store_id
+GROUP BY branch, time
+ORDER BY branch, average_rating DESC;
+
+-- Which day of the week has the best average ratings?
+SELECT 
+    DAYNAME(full_date) AS day_of_week, 
+    AVG(rating) AS average_rating
+FROM sales_fact sf
+JOIN date_dim dd 
+ON sf.date_id = dd.date_id
+GROUP BY day_of_week
+ORDER BY average_rating DESC;
+
+-- How many sales are made on the days with the best average ratings?
+SELECT 
+    DAYNAME(full_date) AS day_of_week, 
+    COUNT(*) AS sales_count
+FROM sales_fact sf
+JOIN date_dim dd 
+ON sf.date_id = dd.date_id
+GROUP BY day_of_week
+ORDER BY sales_count DESC;
+
+-- Sales
+-- Number of sales made in each time of the day per weekday
+SELECT 
+    DAYNAME(full_date) AS day_of_week, 
+    time, 
+    COUNT(*) AS sales_count
+FROM sales_fact sf
+JOIN date_dim dd 
+ON sf.date_id = dd.date_id
+GROUP BY day_of_week, time
+ORDER BY day_of_week, time;
+
+-- Which customer type brings the most revenue?
+SELECT customer_type, SUM(total) AS total_revenue
+FROM sales_fact sf
+JOIN customer_dim cd 
+ON sf.customer_id = cd.customer_id
+GROUP BY customer_type
+ORDER BY total_revenue DESC
+LIMIT 1;
+
+-- Which city has the largest tax/VAT percent?
+SELECT city, SUM(tax) AS total_tax
+FROM sales_fact sf
+JOIN store_dim sd 
+ON sf.store_id = sd.store_id
+GROUP BY city
+ORDER BY total_tax DESC
+LIMIT 1;
+
+-- Which customer type pays the most in VAT?
+SELECT customer_type, SUM(tax) AS total_tax
+FROM sales_fact sf
+JOIN customer_dim cd 
+ON sf.customer_id = cd.customer_id
+GROUP BY customer_type
+ORDER BY total_tax DESC
+LIMIT 1;
