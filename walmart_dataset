@@ -21,3 +21,164 @@ CREATE OR REPLACE TABLE raw_walmart_data (
     gross_income DECIMAL(10, 2),
     rating DECIMAL(3, 1)
 );
+
+-- Create Staging Table
+CREATE OR REPLACE TABLE staging_walmart_data AS
+SELECT
+    invoice_id,
+    branch,
+    city,
+    customer_type,
+    gender,
+    product_line,
+    unit_price,
+    quantity,
+    tax,
+    total,
+    date,
+    time,
+    payment,
+    cogs,
+    gross_margin_percentage,
+    gross_income,
+    rating
+FROM raw_walmart_data;
+
+select * from staging_walmart_data;
+
+CREATE OR REPLACE TABLE date_dim (
+    date_id INT PRIMARY KEY,
+    full_date DATE,
+    day INT,
+    month INT,
+    year INT,
+    day_of_week VARCHAR(10),
+    is_weekend BOOLEAN,
+    time_of_day VARCHAR(20)
+);
+
+INSERT INTO date_dim (date_id, full_date, day, month, year, day_of_week, is_weekend, time_of_day)
+SELECT
+    ROW_NUMBER() OVER (ORDER BY date, time) AS date_id,
+    date AS full_date,
+    EXTRACT(DAY FROM date) AS day,
+    EXTRACT(MONTH FROM date) AS month,
+    EXTRACT(YEAR FROM date) AS year,
+    DAYNAME(date) AS day_of_week,
+    CASE WHEN DAYOFWEEK(date) IN (6, 7) THEN TRUE ELSE FALSE END AS is_weekend,
+    CASE
+        WHEN time BETWEEN '00:00:00' AND '11:59:59' THEN 'Morning'
+        WHEN time BETWEEN '12:00:00' AND '15:59:59' THEN 'Afternoon'
+        ELSE 'Evening'
+    END AS time_of_day
+FROM (
+    SELECT DISTINCT date, time
+    FROM staging_walmart_data
+) AS distinct_dates
+;
+
+select * from date_dim;
+
+
+-- Customer Dimension
+CREATE OR REPLACE TABLE customer_dim (
+    customer_id INT PRIMARY KEY AUTOINCREMENT,
+    customer_type VARCHAR(20),
+    gender VARCHAR(10)
+);
+
+INSERT INTO customer_dim (customer_type, gender)
+SELECT DISTINCT customer_type, gender
+FROM staging_walmart_data;
+
+select * from customer_dim;
+
+--Product dimention
+CREATE OR REPLACE TABLE product_dim (
+    product_id INT PRIMARY KEY AUTOINCREMENT,
+    product_line VARCHAR(50),
+    unit_price DECIMAL(10, 2)
+);
+
+INSERT INTO product_dim (product_line, unit_price)
+SELECT DISTINCT product_line, unit_price
+FROM staging_walmart_data;
+
+select * from product_dim;
+
+
+--store dimetion
+CREATE OR REPLACE TABLE store_dim (
+    store_id INT PRIMARY KEY AUTOINCREMENT,
+    branch VARCHAR(5),
+    city VARCHAR(50)
+);
+
+INSERT INTO store_dim (branch, city)
+SELECT DISTINCT branch, city
+FROM staging_walmart_data;
+
+
+select * from store_dim;
+-- Create Fact Table
+
+-- Sales Fact Table
+CREATE OR REPLACE TABLE sales_fact (
+    sales_id INT PRIMARY KEY AUTOINCREMENT,
+    invoice_id VARCHAR(20),
+    date_id INT,
+    customer_id INT,
+    product_id INT,
+    store_id INT,
+    quantity INT,
+    tax DECIMAL(10, 2),
+    total DECIMAL(10, 2),
+    time TIME,
+    payment VARCHAR(20),
+    cogs DECIMAL(10, 2),
+    gross_margin_percentage DECIMAL(5, 2),
+    gross_income DECIMAL(10, 2),
+    rating DECIMAL(3, 1),
+    FOREIGN KEY (date_id) REFERENCES date_dim(date_id),
+    FOREIGN KEY (customer_id) REFERENCES customer_dim(customer_id),
+    FOREIGN KEY (product_id) REFERENCES product_dim(product_id),
+    FOREIGN KEY (store_id) REFERENCES store_dim(store_id)
+);
+
+INSERT INTO sales_fact (invoice_id, date_id, customer_id, product_id, store_id, quantity, tax, total, time, payment, cogs, gross_margin_percentage, gross_income, rating)
+SELECT
+    st.invoice_id,
+    dd.date_id,
+    cd.customer_id,
+    pd.product_id,
+    sd.store_id,
+    st.quantity,
+    st.tax,
+    st.total,
+    st.time,
+    st.payment,
+    st.cogs,
+    st.gross_margin_percentage,
+    st.gross_income,
+    st.rating
+FROM staging_walmart_data st
+JOIN date_dim dd ON st.date = dd.full_date
+JOIN customer_dim cd ON st.customer_type = cd.customer_type AND st.gender = cd.gender
+JOIN product_dim pd ON st.product_line = pd.product_line AND st.unit_price = pd.unit_price
+JOIN store_dim sd ON st.branch = sd.branch AND st.city = sd.city;
+
+select * from sales_fact;
+
+select * from product_dim;
+
+-- How many unique product lines does the data have?
+SELECT COUNT(DISTINCT product_line) AS unique_product_lines
+FROM product_dim;
+
+-- What is the most selling product line?
+SELECT product_line, SUM(quantity) AS total_quantity
+FROM sales_fact sf
+JOIN product_dim pd ON sf.product_id = pd.product_id
+GROUP BY product_line
+ORDER BY total_quantity DESC
+LIMIT 1;
